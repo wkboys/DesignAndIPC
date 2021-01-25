@@ -5,16 +5,24 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
 
 import com.template.design.Build.ApplePCBuilder;
 import com.template.design.Build.Builder;
@@ -23,6 +31,7 @@ import com.template.design.Combination.AbstractFile;
 import com.template.design.Combination.Directory;
 import com.template.design.Combination.File;
 import com.template.design.IPC.Messenger.MessengerService;
+import com.template.design.IPC.Socket.SocketServerService;
 import com.template.design.IPC.aidl.AIDLService;
 import com.template.design.Observer.Coder;
 import com.template.design.Observer.DevTechFrontier;
@@ -44,11 +53,21 @@ import com.template.design.Singleton.SingletonEnum;
 import com.template.design.Singleton.SingletonManager;
 import com.template.design.Singleton.Static;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.net.Socket;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private Messenger mMessenger;
+    private PrintWriter mPrintWriter;
+    private Socket mClientSocket;
+    private TextView tv_message;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,7 +102,7 @@ public class MainActivity extends AppCompatActivity {
         // 序列化 Messenger AIDL Bundle 文件共享 ContentProvider
 //        messenger();
 //        aidl();
-        ContentProvider();
+//        ContentProvider();
         Socket();
 
         //Binder是Android跨进程通信方式，它实现了IBinder接口，是ServiceManager连接各种Manager(如WindowManager、ActivityManager等)的桥梁
@@ -91,10 +110,91 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void Socket() {
+       final EditText et_receive =findViewById(R.id.et_receive);
+        Button bt_send=findViewById(R.id.bt_send);
+        tv_message = findViewById(R.id.tv_message);
+        bt_send.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final String str = et_receive.getText().toString();
+                        mPrintWriter.println(str);
+                        if (!TextUtils.isEmpty(str)&&null!=mPrintWriter){
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    tv_message.setText(tv_message.getText()+"\n"+"客户端："+str);
+                                    et_receive.setText("");
+                                }
+                            });
 
+                        }
+                    }
+                }).start();
+
+            }
+        });
+
+        Intent intent=new Intent(this, SocketServerService.class);
+        startService(intent);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                connectSocketServer();
+            }
+        }).start();
+    }
+
+    private void connectSocketServer() {
+        Socket socket=null;
+        while (socket ==null){
+            try {
+                socket=new Socket("localhost",8688);
+                mClientSocket=socket;
+                mPrintWriter=new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())),true);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        try {
+            BufferedReader br=new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            while (!isFinishing()){
+                final String msg=br.readLine();
+                if (msg!=null){
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            tv_message.setText(tv_message.getText()+"\n"+" 服务端："+msg);
+                        }
+                    });
+                }
+            }
+            mPrintWriter.close();
+            br.close();
+            socket.close();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void ContentProvider() {
+        Uri uri=Uri.parse("content://com.template.design.IPC.ContentProvider.GameProvider");
+        ContentValues mContentValues=new ContentValues();
+        mContentValues.put("_id",2);
+        mContentValues.put("name","大航海时代ol");
+        mContentValues.put("describe","最好玩的航海网游");
+        getContentResolver().insert(uri,mContentValues);
+        Cursor gameCursor = getContentResolver().query(uri, new String[]{"name", "describe"}, null, null, null);
+        while (gameCursor.moveToNext()){
+            Game mGame=new Game(gameCursor.getString(0),gameCursor.getString(1));
+            Log.e("zzz",mGame.gameName+"---"+mGame.gameDescribe);
+        }
+
 
     }
 
